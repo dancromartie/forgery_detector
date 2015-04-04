@@ -1,0 +1,12 @@
+Vagrant.configure("2") do |config|
+
+  config.vm.box = "ubuntu/trusty64"
+  #config.vm.provision :shell, path: "bootstrap.sh"
+  config.vm.synced_folder ".", "/home/vagrant/project"
+
+end
+
+#provisioning
+# sudo apt-get update
+# sudo apt-get build-dep python-opencv
+# sudo apt-get install python-opencv python-numpy python-dev
