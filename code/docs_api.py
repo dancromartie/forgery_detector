@@ -1,4 +1,4 @@
-import math
+import json
 import os
 import random
 import re
@@ -6,62 +6,28 @@ import sys
 
 import cv2
 import numpy as np
+import scipy.stats
 
 
-def contour_stuff(read_path):
-    img = cv2.imread(read_path, 0)
-    write_path = re.sub(".jpg", "_contour.jpg", read_path)
-    temp_path = re.sub(".jpg", "_threshtemp.jpg", read_path)
-    canny_path = re.sub(".jpg", "_canny.jpg", read_path)
-    blur_path = re.sub(".jpg", "_blur.jpg", read_path)
+IMAGE_DIR = os.environ.get("FD_IMAGE_DIR")
+NUM_ROWS = 10
+NUM_COLS = 10
 
-    #blur = cv2.medianBlur(img, 81)
-    blur = cv2.bilateralFilter(img,40,75,75)
-    ret, thresh = cv2.threshold(blur, 120,255, cv2.THRESH_BINARY_INV)
-    edges = cv2.Canny(blur,0, 20)
+def standardize_check(color, name):
 
-    cv2.imwrite(temp_path, thresh)
-    contours, hierarchy = cv2.findContours(edges, 1, 2)
-
-    cnt = contours[0]
-    epsilon = 100
-    approx = cv2.approxPolyDP(cnt,epsilon,True)
-
-    blah = np.array([[[0,0], [120,120], [0, 60], [200, 300]]])
-    print blah
-    print approx
-    cv2.drawContours(img, approx, 0, (0,250,0), 20)
-
-
-    cv2.imwrite(write_path, img)
-    cv2.imwrite(canny_path, edges)
-    cv2.imwrite(blur_path, blur)
-    shape = edges.shape
-    for i in range(100):
-        pass
-        #print edges[random.randint(0, shape[0]), random.randint(0, shape[1])]
-
-def get_write_path(read_path, type_):
-    write_path = read_path.replace("raw", type_)
-    write_path = re.sub(".jpg", "_" + type_ + ".jpg", write_path)
-    return write_path
-
-def standardize_check(read_path):
-    im = cv2.imread(read_path)
-
-    blur_path = get_write_path(read_path, "blur")
-    contour_path = get_write_path(read_path, "contour")
-    thresh_path = get_write_path(read_path, "thresh")
-    warp_path = get_write_path(read_path, "warp")
-    thresh_warp_path = get_write_path(read_path, "thresh_warp")
-    canny_path = get_write_path(read_path, "canny")
-    denoise_path = get_write_path(read_path, "denoise")
-    adaptive_path = get_write_path(read_path, "adaptive")
+    blur_path = IMAGE_DIR + "/blur/" + name
+    contour_path = IMAGE_DIR + "/contour/" + name
+    thresh_path = IMAGE_DIR + "/thresh/" + name
+    warp_path = IMAGE_DIR + "/warp/" + name
+    thresh_warp_path = IMAGE_DIR + "/thresh_warp/" + name
+    canny_path = IMAGE_DIR + "/canny/" + name
+    denoise_path = IMAGE_DIR + "/denoise/" + name
+    adaptive_path = IMAGE_DIR + "/adaptive/" + name
 
     # I do the writing to files right after the assignment, which is a little harder to organize,
     # but a lot of these functions modify things in place and it's hard to tell when they get 
     # touched.
-    gray = cv2.cvtColor(im,cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray,(1,1),1000)
     cv2.imwrite(blur_path, blur)
 
@@ -90,7 +56,7 @@ def standardize_check(read_path):
     corners = []
     for point in r:
         corners.append([int(y) for y in point])
-    cv2.drawContours(im, np.array([corners]), 0, (0,250,0), 20)
+    cv2.drawContours(color, np.array([corners]), 0, (0,250,0), 20)
 
     approx = approx.astype(np.float32)
     width = 2688
@@ -100,13 +66,13 @@ def standardize_check(read_path):
     src = order_points(src)
     dst = h
     transform = cv2.getPerspectiveTransform(src, dst)
-    warp = cv2.warpPerspective(im,transform,(width,height))
+    warp = cv2.warpPerspective(color,transform,(width,height))
     warp = cv2.cvtColor(warp,cv2.COLOR_BGR2GRAY)
     cv2.imwrite(warp_path, warp)
 
     threshed_warp = apply_binary_threshold(warp)
 
-    cv2.imwrite(contour_path, im)
+    cv2.imwrite(contour_path, color)
     cv2.imwrite(thresh_warp_path, threshed_warp)
 
     adaptive_threshed = apply_adaptive_threshold(warp)
@@ -116,10 +82,6 @@ def apply_binary_threshold(img):
     # Call something dark if it's darker than the 90th percentile pixel
     cutoff = np.percentile(img, 20)
     flag, threshed = cv2.threshold(img, 75, 255, cv2.THRESH_BINARY_INV)
-    # The maxValue parameter is what you want to set things to when the threshold is exceeded
-    # It is set to 0 (black) if not exceeded
-    #threshed = cv2.adaptiveThreshold(img,255,cv2.ADAPTIVE_THRESH_MEAN_C,\
-    #    cv2.THRESH_BINARY,501, 2)
     return threshed
 
 def apply_adaptive_threshold(img):
@@ -155,12 +117,29 @@ def order_points(pts):
     # return the ordered coordinates
     return rect
 
+
+def get_color_img(path):
+    color = cv2.imread(path)
+    assert color is not None
+    return color
+
+def get_gray_img(path):
+    color = get_color_img(path)
+    gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
+    assert gray is not None
+    return gray
+
+def get_adaptive_gray_img(name):
+    adaptive_path = IMAGE_DIR + "/adaptive/" + name
+    gray = get_gray_img(adaptive_path)
+    return gray
+
 def process_all(path):
-    files = [os.path.join(path, f) for f in os.listdir(path)]
-    for file in files:
-        if file.endswith(".jpg"):
-            print "processing %s" % file
-            standardize_check(file)
+    full_paths = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(".jpg")]
+    for i in range(len(full_paths)):
+        print "processing %s" % full_paths[i]
+        color = get_color_img(full_paths[i])
+        standardize_check(color=color, name=get_basename(full_paths[i]))
 
 def get_pixel_chunk_mapping(num_rows, num_columns, gray):
     pixels_per_row = int(gray.shape[0] / num_rows)
@@ -189,9 +168,7 @@ def get_box_boundaries(box):
     end_horiz = box["end_horiz"]
     return start_vert, end_vert, start_horiz, end_horiz
 
-def get_pixel_chunk_sums(path, mapping):
-    im = cv2.imread(path)
-    gray = cv2.cvtColor(im,cv2.COLOR_BGR2GRAY)
+def get_pixel_chunk_sums(gray, mapping):
     sums = []
     for box in mapping:
         a, b, c, d = get_box_boundaries(box)
@@ -199,36 +176,85 @@ def get_pixel_chunk_sums(path, mapping):
         sums.append(chunk.sum())
     return np.array(sums, dtype="float32")
 
-def get_pixel_chunk_sum_ratios(path_1, path_2, mapping):
-    sums_1 = get_pixel_chunk_sums(path_1, mapping)
-    sums_2 = get_pixel_chunk_sums(path_2, mapping)
-    return sums_1 / sums_2
-
-def find_abnormal_cells(path_1, path_2):
-    im = cv2.imread(path_1)
-    gray = cv2.cvtColor(im,cv2.COLOR_BGR2GRAY)
-    mapping = get_pixel_chunk_mapping(10, 32, gray)
-    ratios = get_pixel_chunk_sum_ratios(path_1, path_2, mapping)
+def find_abnormal_cells(gray, reference_dists):
+    mapping = get_pixel_chunk_mapping(NUM_ROWS, NUM_COLS, gray)
+    sums = get_pixel_chunk_sums(gray, mapping)
     weird = []
-    for i in range(len(ratios)):
-        ratio = ratios[i]
-        if ratio < .5 or ratio > 1.8:
-            print "Cell %s seems weird! Ratio of %s " % (i, ratio)
+    for i, chunk_sum in enumerate(sums):
+        # Woops, apparently you can have ints as keys for dicts, but when you JSON serialize they 
+        # become strings?  Need to look into that...
+        ref_dist = reference_dists[str(i)]
+        mean = ref_dist["mean"]
+        std = ref_dist["std"]
+        num_deviations = (chunk_sum - mean) / std
+        upper = scipy.stats.norm(mean, std).ppf(.95)
+        lower = scipy.stats.norm(mean, std).ppf(.05)
+        if abs(num_deviations) > 3.5:
+            print "Cell %s seems weird! sum of %s " % (i, chunk_sum)
+            print "Cutoffs are %s to %s" % (lower, upper)
+            print "Reference mean: %s, ref stdev: %s" % (mean, std)
+            print "%s stdevs from mean" % num_deviations
+            print "\n"
             weird.append(i)
-
-    color_abnormalities(path_1, mapping, weird)
     return weird
 
-def color_abnormalities(path, mapping, cell_nums):
-    im = cv2.imread(path)
+def color_abnormalities(name, color, mapping, cell_nums):
     for i in cell_nums:
         a, b, c, d = get_box_boundaries(mapping[i])
         # 0 means the blue index i supposed, because 10B 255R 255G is yellow, and this turns yellow
         # not sure how the ordering is known...
-        im[a:b, c:d, 0] = 10
-    abnormality_path = get_write_path(path, "abnormality")
-    print abnormality_path
-    cv2.imwrite(abnormality_path, im)
+        print a,b,c,d
+        color[a:b, c:d, 0] = 10
+    abnormality_path = IMAGE_DIR + "/abnormality/" + name
+    print color.shape
+    cv2.imwrite(abnormality_path, color)
 
+def make_reference_dists(path):
+    files = [f for f in os.listdir(path) if f.endswith(".jpg")]
+    stats_by_chunk = {}
+    mapping = None
+    for rep_ind in range(100):
+        f = random.choice(files)
+        print "processing %s" % f
+        adaptive_path = IMAGE_DIR + "/adaptive/" + f
+        adaptive = get_gray_img(adaptive_path)
+        if mapping is None:
+            assert isinstance(adaptive, np.ndarray)
+            mapping = get_pixel_chunk_mapping(NUM_ROWS, NUM_COLS, adaptive)
+        chunk_sums = get_pixel_chunk_sums(adaptive, mapping)
+        for chunk_ind, chunk_sum in enumerate(chunk_sums):
+            if chunk_ind not in stats_by_chunk:
+                stats_by_chunk[chunk_ind] = [chunk_sum]
+            else:
+                stats_by_chunk[chunk_ind].append(chunk_sum)
 
+    dist_by_chunk = {}
+    for chunk_ind, chunk in stats_by_chunk.iteritems():
+        print chunk
+        # Apparently np numeric types arent json serializable?
+        dist_by_chunk[chunk_ind] = {"mean": float(np.mean(chunk)), "std": float(np.std(chunk))}
+        print np.mean(chunk)
+    with open("reference_dists.json", "w") as f:
+        f.write(json.dumps(dist_by_chunk))
 
+def get_reference_dists_from_file():
+    with open("reference_dists.json", "r") as f:
+        return json.loads(f.read())
+
+def get_basename(path):
+    return os.path.basename(path)
+
+def scan_image_for_fraud(path):
+    color = get_color_img(path)
+    name = get_basename(path)
+    print name
+    standardize_check(color, get_basename(path))
+    ref_dists = get_reference_dists_from_file()
+    adaptive_path = IMAGE_DIR + "/adaptive/" + name
+    adaptive = get_gray_img(adaptive_path)
+    abnormal_cells = find_abnormal_cells(adaptive, ref_dists)
+    name = get_basename(path)
+    mapping = get_pixel_chunk_mapping(NUM_ROWS, NUM_COLS, adaptive)
+    # The color object gets modified in the other functions, so we need to make a copy
+    color_for_abnorm_highlight = get_color_img(adaptive_path)
+    color_abnormalities(name, color_for_abnorm_highlight, mapping, abnormal_cells)
