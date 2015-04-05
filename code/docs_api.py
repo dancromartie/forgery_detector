@@ -33,13 +33,12 @@ def standardize_check(color, name):
     gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
     gray_2 = copy.deepcopy(gray)
 
+    gray = cv2.bilateralFilter(gray, 11, 17, 17)
+    cv2.imwrite(gray_path, gray)
+
     thresh = apply_adaptive_threshold(gray)
     cv2.imwrite(thresh_path, thresh)
 
-    #flag, thresh = cv2.threshold(blur, 120, 255, cv2.THRESH_BINARY)
-    #thresh = apply_binary_threshold(blur)
-    gray = cv2.bilateralFilter(gray, 11, 17, 17)
-    cv2.imwrite(gray_path, gray)
     edged = cv2.Canny(gray, 30, 200)
     cv2.imwrite(canny_path, edged)
 
@@ -61,15 +60,13 @@ def standardize_check(color, name):
     cv2.drawContours(color, np.array([corners]), 0, (0,250,0), 20)
 
     approx = approx.astype(np.float32)
-    width = 2688
-    height = 1520
-    h = np.array([ [0,0],[width,0],[width,height],[0,height] ],np.float32)
+    width = HEIGHT_PIXELS
+    height = WIDTH_PIXELS
     src = np.array(corners, dtype='float32')
     src = order_points(src)
-    dst = h
+    dst = np.array([ [0,0],[width,0],[width,height],[0,height] ],np.float32)
     transform = cv2.getPerspectiveTransform(src, dst)
     warp = cv2.warpPerspective(gray_2, transform, (width,height))
-    #warp = cv2.cvtColor(warp,cv2.COLOR_BGR2GRAY)
     cv2.imwrite(warp_path, warp)
 
     cv2.imwrite(contour_path, color)
